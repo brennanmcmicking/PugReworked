@@ -10,10 +10,7 @@
 
 /*
 TODO:
--Player commands
--Knife round
 -Pause (unlimited) and Timeout (30 seconds)
--Properly handle player count
 */
 
 ConVar KnifeEnabled;

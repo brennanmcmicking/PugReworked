@@ -42,6 +42,7 @@ public void OnPluginStart() {
     RegConsoleCmd("sm_stay", Command_Stay, "Stay after kniferound.");
     RegConsoleCmd("sm_switch", Command_Switch, "Switch after kniferound.");
     RegConsoleCmd("sm_votestart", Command_VoteStart, "Vote to start the match.");
+    RegConsoleCmd("sm_pughelp", Command_Help, "Help!!");
     // Register Admin Commands
     RegAdminCmd("sm_forcestart", Command_ForceStart, ADMFLAG_CONVARS, "Ready.");
     RegAdminCmd("sm_warmup", Command_Warmup, ADMFLAG_CONVARS, "Ready.");
@@ -107,7 +108,7 @@ public void OnClientDisconnect(int client) {
 }
 // Functions
 bool IsHuman(int client) {
-    if(client == 0) return false;
+    if(client == 0 || client > maxValidClientIndex) return false;
     return !IsClientSourceTV(client) && !IsClientReplay(client) && !IsFakeClient(client);
 }
 
@@ -193,6 +194,10 @@ void SwapTeams() {
 
 // Events
 public Action Command_Ready(int client, int args) {
+    if(gameState != 0) {
+        PrintToChat(client, "[PUG] Match has already started.");
+        return Plugin_Handled;
+    }
     if(ready[client]) {
         PrintToChat(client, "[PUG] You are already ready.");
     } else {
@@ -204,22 +209,22 @@ public Action Command_Ready(int client, int args) {
 }
 
 public Action Command_Unready(int client, int args) {
-    if(gameState == 0) {
-        if(!ready[client]) {
-            PrintToChat(client, "[PUG] You are already not ready.");
-        } else {
-            PrintToChat(client, "[PUG] You are no longer ready.");
-            ready[client] = false;
-        }
-        UpdateReadyCount();
-    } else {
-        PrintToChat(client, "[PUG] Match has already been initiated.");
+    if(gameState != 0) {
+        PrintToChat(client, "[PUG] Match has already started.");
+        return Plugin_Handled;
     }
+    if(!ready[client]) {
+        PrintToChat(client, "[PUG] You are already not ready.");
+    } else {
+        PrintToChat(client, "[PUG] You are no longer ready.");
+        ready[client] = false;
+    }
+    UpdateReadyCount();
     return Plugin_Handled;
 }
 
 public Action Command_VoteStart(int client, int args) {
-    if(RequiredReadiesVoteStart.IntValue <= readyCount && gameState == 0 && !IsVoteInProgress()) {
+    if(gameState == 0 && RequiredReadiesVoteStart.IntValue <= readyCount && !IsVoteInProgress()) {
         Menu menu = new Menu(Handle_VoteStartMenu);
         menu.SetTitle("Would you like to start the match without full teams?");
         menu.AddItem("yes", "Yes");
@@ -261,6 +266,11 @@ public Action Command_Switch(int client, int args) {
     return Plugin_Handled;
 }
 
+public Action Command_Help(int client, int args) {
+    PrintToChat(client, "[PUG] !ready, !unready, !stay - vote to stay after winning kniferound, !switch - vote to switch after winning kniferound, !votestart - vote to start the match if you have enough people");
+    return Plugin_Handled;
+}
+
 public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast) {
     if(gameState == 1) {
         gameState = 2;
@@ -278,14 +288,16 @@ public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 }
 
 public void Event_ReadyCVarChanged(ConVar convar, char[] oldValue, char[] newValue) {
-    if(StringToInt(newValue) == 1) {
+    if(StringToInt(newValue) == 1 && gameState == 0) {
         ForceAllReadyStatus(false);
         UpdateReadyCount();
     }
 }
 
 public void Event_RequiredReadiesChanged(ConVar convar, char[] oldValue, char[] newValue) {
-    UpdateReadyCount();
+    if(gameState == 0) {
+        UpdateReadyCount();
+    }
 }
 
 // Timers and Vote Menus

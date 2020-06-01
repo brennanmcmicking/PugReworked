@@ -3,7 +3,7 @@ Re-writing my PugCommands plugin to make it actually well-written.
 
 When a map is loaded, the warmup time will be set to infinite. Once ten players have entered the server and typed `!ready`, the players will either be taken to a kniferound or directly to the start of the match, depending on the `pug_kniferound` ConVar.  
 If kniferound is enabled, then the players will have their knife battle and the winning team will get to choose which side they want to start on - T or CT.  
-The server admin can also configure whether or not they want the players in the server to be able to start without reaching the required number of people if they vote in agreement. `pug_requiredradiesvotestart` indicates how many people must be ready for a vote-start to be initiated.  
+The server admin can also configure whether or not they want the players in the server to be able to start without reaching the required number of people if they vote in agreement. `pug_requiredreadiesvotestart` indicates how many people must be ready for a vote-start to be initiated.  
 
 # Commands
 `!ready`   

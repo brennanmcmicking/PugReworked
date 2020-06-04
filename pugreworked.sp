@@ -48,6 +48,7 @@ public void OnPluginStart() {
     RegAdminCmd("sm_warmup", Command_Warmup, ADMFLAG_CONVARS, "Ready.");
     // Hook Events
     HookEvent("round_end", Event_RoundEnd, EventHookMode_Post);
+    HookEvent("player_spawned", Event_PlayerSpawned, EventHookMode_Post);
     // ConVars
     KnifeEnabled                = CreateConVar("pug_kniferound", "1", "Enables kniferound.", _, true, 0.0, true, 1.0);
     ReadyOn                     = CreateConVar("pug_readysystem", "1", "Enables the ready system.", _, true, 0.0, true, 1.0);
@@ -176,6 +177,7 @@ void ForceAllReadyStatus(bool arg) {
     {
         ready[i] = arg;
     }
+    UpdateReadyCount();
 }
 
 void SwapTeams() {
@@ -202,6 +204,7 @@ public Action Command_Ready(int client, int args) {
         PrintToChat(client, "[PUG] You are already ready.");
     } else {
         PrintToChat(client, "[PUG] You are now ready.");
+        CS_SetClientClanTag(client, "[READY]");
         ready[client] = true;
     }
     UpdateReadyCount();
@@ -217,6 +220,7 @@ public Action Command_Unready(int client, int args) {
         PrintToChat(client, "[PUG] You are already not ready.");
     } else {
         PrintToChat(client, "[PUG] You are no longer ready.");
+        CS_SetClientClanTag(client, "[NOT READY]");
         ready[client] = false;
     }
     UpdateReadyCount();
@@ -282,9 +286,20 @@ public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
                 PrintToChat(i, "[PUG] Your team lost the knife round. The other team has 30 seconds to vote.");
             }
         }
-        CreateTimer(30.0, Timer_KnifeVote);
+        CreateTimer(25.0, Timer_KnifeVoteWarning);
     }
     return Plugin_Handled;
+}
+
+public Action Event_PlayerSpawned(Event event, const char[] name, bool dontBroadcast) {
+    if(gameState == 0) {
+        int client = GetClientOfUserId(event.GetInt("userid"));
+        if(ready[client] == true) {
+            CS_SetClientClanTag(client, "[READY]");
+        } else {
+            CS_SetClientClanTag(client, "[NOT READY]");
+        }
+    }
 }
 
 public void Event_ReadyCVarChanged(ConVar convar, char[] oldValue, char[] newValue) {
@@ -301,9 +316,17 @@ public void Event_RequiredReadiesChanged(ConVar convar, char[] oldValue, char[] 
 }
 
 // Timers and Vote Menus
+public Action Timer_KnifeVoteWarning(Handle timer) {
+    PrintToChatAll("[PUG] Match starting in 5 seconds!");
+    CreateTimer(5.0, Timer_KnifeVote);
+}
+
 public Action Timer_KnifeVote(Handle timer) {
     if(knifeVoteStay < knifeVoteSwitch) {
+        PrintToChatAll("[PUG] The winning team chose to switch.");
         SwapTeams();
+    } else {
+        PrintToChatAll("[PUG] The winning team chose to stay.");
     }
     knifeVoteStay = 0;
     knifeVoteSwitch = 0;

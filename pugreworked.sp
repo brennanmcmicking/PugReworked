@@ -32,7 +32,7 @@ public Plugin myinfo =  {
 	author = "Brennan McMicking",
 	description = "!pughelp",
 	version = "3.0",
-	url = "github.com/brennanmcmicking"
+	url = "github.com/brennanmcmicking/pugreworked"
 }
 
 public void OnPluginStart() {
@@ -48,16 +48,17 @@ public void OnPluginStart() {
     RegAdminCmd("sm_warmup", Command_Warmup, ADMFLAG_CONVARS, "Ready.");
     // Hook Events
     HookEvent("round_end", Event_RoundEnd, EventHookMode_Post);
+    HookEvent("match_end_conditions", Event_GameEnd, EventHookMode_Post);
     HookEvent("player_spawned", Event_PlayerSpawned, EventHookMode_Post);
     // ConVars
     KnifeEnabled                = CreateConVar("pug_kniferound", "1", "Enables kniferound.", _, true, 0.0, true, 1.0);
     ReadyOn                     = CreateConVar("pug_readysystem", "1", "Enables the ready system.", _, true, 0.0, true, 1.0);
     RequiredReadies             = CreateConVar("pug_requiredreadies", "10", "Number of players that must be ready for the match to start. Default: 10.");
-    RequiredReadiesVoteStart   = CreateConVar("pug_requiredreadiesvotestart", "8", "Number of players that must be ready for a vote-start to be initiated. Default: 8.");
+    RequiredReadiesVoteStart    = CreateConVar("pug_requiredreadiesvotestart", "8", "Number of players that must be ready for a vote-start to be initiated. Default: 8.");
 
     // We must reset everything if this is changed.
     ReadyOn.AddChangeHook(Event_ReadyCVarChanged);
-    RequiredReadies.AddChangeHook(Event_RequiredReadiesChanged);
+    RequiredReadies.AddChangeHook(Event_RequiredReadiesChanged)
 }
 
 // Forwards
@@ -96,7 +97,7 @@ public void OnClientConnected(int client) {
 public void OnClientDisconnect(int client) {
     ready[client] = false;
     if(client >= maxValidClientIndex) {
-        maxValidClientIndex = -1;
+        maxValidClientIndex = 0;
         int i;
         for(i = 1; i < client; i++) {
             if(IsHuman(i)) {
@@ -106,6 +107,8 @@ public void OnClientDisconnect(int client) {
             }
         }
     }
+    if(maxValidClientIndex == 0) 
+        StartWarmup();
 }
 // Functions
 bool IsHuman(int client) {
@@ -169,6 +172,11 @@ void StartMatch() {
     ServerCommand("mp_warmup_end");
     ServerCommand("mp_restartgame 1");
     PrintToChatAll("[PUG] The match is live. Good luck!");
+}
+
+void StartOvertimeVote() {
+    // TODO:
+    // -Vote for overtime. Do the people want an overtime or do they want to accept a tie?
 }
 
 void ForceAllReadyStatus(bool arg) {
@@ -291,15 +299,28 @@ public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
     return Plugin_Handled;
 }
 
+public Action Event_GameEnd(Event event, const char[] name, bool dontBroadcast) {
+    int maxRounds = event.GetInt("max_rounds");
+    int winRounds = event.GetInt("win_rounds");
+    if(winRounds == maxRounds / 2) {
+        // The teams tied. Start overtime vote.
+        StartOvertimeVote();
+    }
+}
+
 public Action Event_PlayerSpawned(Event event, const char[] name, bool dontBroadcast) {
     if(gameState == 0) {
         int client = GetClientOfUserId(event.GetInt("userid"));
+        DataPack clientInfo;
+        CreateDataTimer(0.1, Timer_InitClanTag, clientInfo);
+        clientInfo.WriteCell(client);
         if(ready[client] == true) {
-            CS_SetClientClanTag(client, "[READY]");
+            clientInfo.WriteString("[READY]");
         } else {
-            CS_SetClientClanTag(client, "[NOT READY]");
+            clientInfo.WriteString("[NOT READY]");
         }
     }
+    
 }
 
 public void Event_ReadyCVarChanged(ConVar convar, char[] oldValue, char[] newValue) {
@@ -338,6 +359,16 @@ public Action Timer_KnifeVote(Handle timer) {
     }
     PrintToChatAll("[PUG] Starting match.");
     StartMatch();
+    return Plugin_Handled;
+}
+
+public Action Timer_InitClanTag(Handle timer, DataPack clientInfo) {
+    char msg[16];
+    int client;
+    clientInfo.Reset();
+    client = clientInfo.ReadCell();
+    clientInfo.ReadString(msg, sizeof(msg));
+    CS_SetClientClanTag(client, msg);
     return Plugin_Handled;
 }
 

@@ -18,8 +18,11 @@ ConVar ReadyOn;
 ConVar RequiredReadies;
 ConVar RequiredReadiesVoteStart;
 
+ArrayList validPlayers;
+
 bool ready[MAXPLAYERS + 1];
 bool knifeVoteStatus[MAXPLAYERS + 1];
+bool teamLock = false;
 int readyCount = 0;
 int knifeWinner = 0;
 int knifeVoteStay = 0;
@@ -31,7 +34,7 @@ public Plugin myinfo =  {
 	name = "PUG System: Reworked",
 	author = "Brennan McMicking",
 	description = "!pughelp",
-	version = "3.0",
+	version = "3.1",
 	url = "github.com/brennanmcmicking/pugreworked"
 }
 
@@ -50,6 +53,7 @@ public void OnPluginStart() {
     HookEvent("round_end", Event_RoundEnd, EventHookMode_Post);
     HookEvent("match_end_conditions", Event_GameEnd, EventHookMode_Post);
     HookEvent("player_spawned", Event_PlayerSpawned, EventHookMode_Post);
+    HookEvent("teamchange_pending", Event_TeamChange, EventHookMode_Pre);
     // ConVars
     KnifeEnabled                = CreateConVar("pug_kniferound", "1", "Enables kniferound.", _, true, 0.0, true, 1.0);
     ReadyOn                     = CreateConVar("pug_readysystem", "1", "Enables the ready system.", _, true, 0.0, true, 1.0);
@@ -59,6 +63,9 @@ public void OnPluginStart() {
     // We must reset everything if this is changed.
     ReadyOn.AddChangeHook(Event_ReadyCVarChanged);
     RequiredReadies.AddChangeHook(Event_RequiredReadiesChanged)
+
+    // We must initialize our players array, which will store the SteamIDs of players who are able to play in the match.
+    validPlayers = CreateArray(32, 0);
 }
 
 // Forwards
@@ -87,6 +94,15 @@ public void OnMapStart() {
     StartWarmup();
 }
 
+public bool OnClientConnect(int client, char[] rejectmsg, int maxlen) {
+    if(IsAllowed(client) || gameState == 0) {
+        return true;
+    }
+
+    strcopy(rejectmsg, maxlen, "Server is locked");
+    return false;
+}
+
 public void OnClientConnected(int client) {
     ready[client] = false;
     if(client > maxValidClientIndex && !IsClientSourceTV(client)) {
@@ -110,13 +126,34 @@ public void OnClientDisconnect(int client) {
     if(maxValidClientIndex == 0) 
         StartWarmup();
 }
+
 // Functions
+bool IsAllowed(int client) {
+    char steamid[32];
+    GetClientAuthId(client, AuthId_SteamID64, steamid, 32, true);
+    if(validPlayers.FindString(steamid) == -1) {
+        return false;
+    }
+    
+    return true;
+}
+
 bool IsHuman(int client) {
     if(client == 0 || client > maxValidClientIndex) return false;
     return !IsClientSourceTV(client) && !IsClientReplay(client) && !IsFakeClient(client);
 }
 
 void Start() {
+    teamLock = true;
+
+    validPlayers.Clear();
+    for(int i = 1; i < maxValidClientIndex; i++) {
+        if(IsHuman(i)) {
+            char steamid[32];
+            GetClientAuthId(i, AuthId_SteamID64, steamid, 32, true);
+            validPlayers.PushString(steamid);
+        }
+    }
     if(KnifeEnabled.IntValue == 1) {
         StartKnifeRound();
     } else {
@@ -139,6 +176,8 @@ void UpdateReadyCount() {
 }
 
 void StartWarmup() {   
+    teamLock = false;
+    validPlayers.Clear();
     gameState = 0;
     readyCount = 0;
     ForceAllReadyStatus(false);
@@ -179,16 +218,17 @@ void StartOvertimeVote() {
     // -Vote for overtime. Do the people want an overtime or do they want to accept a tie?
 }
 
-void ForceAllReadyStatus(bool arg) {
+void ForceAllReadyStatus(bool newValue) {
     int i;
     for(i = 0; i < MAXPLAYERS + 1; i++)
     {
-        ready[i] = arg;
+        ready[i] = newValue;
     }
     UpdateReadyCount();
 }
 
 void SwapTeams() {
+    teamLock = false;
     for(int i = 1; i < maxValidClientIndex + 1; i++) {
         if(IsHuman(i)) {
             int team = GetClientTeam(i);
@@ -199,10 +239,11 @@ void SwapTeams() {
             }
         }
     }
+    teamLock = true;
     ServerCommand("bot_kick");
 }
 
-// Events
+// Commands
 public Action Command_Ready(int client, int args) {
     if(gameState != 0) {
         PrintToChat(client, "[PUG] Match has already started.");
@@ -283,6 +324,7 @@ public Action Command_Help(int client, int args) {
     return Plugin_Handled;
 }
 
+// Events
 public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast) {
     if(gameState == 1) {
         gameState = 2;
@@ -305,6 +347,8 @@ public Action Event_GameEnd(Event event, const char[] name, bool dontBroadcast) 
     if(winRounds == maxRounds / 2) {
         // The teams tied. Start overtime vote.
         StartOvertimeVote();
+    } else {
+        StartWarmup();
     }
 }
 
@@ -321,6 +365,19 @@ public Action Event_PlayerSpawned(Event event, const char[] name, bool dontBroad
         }
     }
     
+}
+
+public Action Event_TeamChange(Event event, const char[] name, bool dontBroadcast) {  
+    if(teamLock) {
+        if(GetClientTeam(GetClientOfUserId(event.GetInt("userid"))) == CS_TEAM_NONE) {
+            // If they don't have a team (AKA they reconnected), just let them join a team.
+            // If they join the wrong team, they gotta reconnect and try again.
+            return Plugin_Continue;
+        }
+        return Plugin_Handled;
+    }
+
+    return Plugin_Continue;
 }
 
 public void Event_ReadyCVarChanged(ConVar convar, char[] oldValue, char[] newValue) {

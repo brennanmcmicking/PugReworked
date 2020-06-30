@@ -29,6 +29,7 @@ int knifeVoteStay = 0;
 int knifeVoteSwitch = 0;
 int maxValidClientIndex = 0;
 int gameState = 0; // 0 for warmup, 1 for kniferound, 2 for side vote (post-kniferound), 3 for match live
+int clientpaused = -1;
 
 public Plugin myinfo =  {
 	name = "PUG System: Reworked",
@@ -46,6 +47,9 @@ public void OnPluginStart() {
     RegConsoleCmd("sm_switch", Command_Switch, "Switch after kniferound.");
     RegConsoleCmd("sm_votestart", Command_VoteStart, "Vote to start the match.");
     RegConsoleCmd("sm_pughelp", Command_Help, "Help!!");
+    RegConsoleCmd("sm_pause", Command_Pause, "Pause the match.");
+    RegConsoleCmd("sm_unpause", Command_Unpause, "Unpause the match.");
+    RegConsoleCmd("sm_voteunpause", Command_VoteUnpause, "Vote to unpause the match if someone is abusing the pause feature.");
     // Register Admin Commands
     RegAdminCmd("sm_forcestart", Command_ForceStart, ADMFLAG_CONVARS, "Ready.");
     RegAdminCmd("sm_warmup", Command_Warmup, ADMFLAG_CONVARS, "Ready.");
@@ -65,7 +69,7 @@ public void OnPluginStart() {
     RequiredReadies.AddChangeHook(Event_RequiredReadiesChanged)
 
     // We must initialize our players array, which will store the SteamIDs of players who are able to play in the match.
-    validPlayers = CreateArray(32, 0);
+    validPlayers = CreateArray(2, 0);
 }
 
 // Forwards
@@ -149,8 +153,11 @@ void Start() {
     validPlayers.Clear();
     for(int i = 1; i < maxValidClientIndex; i++) {
         if(IsHuman(i)) {
+            int accountid = GetSteamAccountID(i);
             char steamid[32];
             GetClientAuthId(i, AuthId_SteamID64, steamid, 32, true);
+            PrintToChatAll("SteamID: %s", steamid);
+            PrintToChatAll("AccountID: %d", accountid);
             validPlayers.PushString(steamid);
         }
     }
@@ -324,6 +331,70 @@ public Action Command_Help(int client, int args) {
     return Plugin_Handled;
 }
 
+public Action Command_Pause(int client, int args) {
+    if(gameState == 3) {
+        if(clientpaused == -1) {
+            clientpaused = client;
+            ServerCommand("mp_pause_match");
+            char name[64];
+            if(GetClientName(client, name, 64)) {
+                PrintToChatAll("[PUG] %s has paused the match at next freezetime.", name);
+            } else {
+                PrintToChatAll("[PUG] The match will pause at next freezetime.");
+            }
+            return Plugin_Handled;
+        } else {
+            char name[64];
+            if(GetClientName(clientpaused, name, 64)) {
+                PrintToChat(client, "[PUG] The match is already paused by %s.", name);
+            }
+        }
+    } else {
+        PrintToChat(client, "[PUG] The match is not live. You cannot pause.");
+    }
+    return Plugin_Handled;
+}
+
+public Action Command_Unpause(int client, int args) {
+    if(gameState == 3) {
+        if(client == clientpaused) {
+            ServerCommand("mp_unpause_match");
+            clientpaused = -1;
+            PrintToChatAll("[PUG] The match has been unpaused.");
+        } else {
+            char name[64];
+            if(GetClientName(clientpaused, name, 64)) {
+                PrintToChat(client,"[PUG] Only %s can unpause the match. Use !voteunpause if they are abusing the pause feature.", name);
+            } else {
+                PrintToChat(client, "[PUG] Only the player that paused the match can unpause. Use !voteunpause if they are abusing the pause feature");
+            }
+        }
+    } else {
+        PrintToChat(client, "[PUG] The match is not live. You cannot unpause.");
+    }
+    return Plugin_Handled;
+}
+
+public Action Command_VoteUnpause(int client, int args) {
+    if(gameState == 3) {
+        if(clientpaused != -1 && !IsVoteInProgress()) {
+            // Start the unpause vote.
+            Menu menu = new Menu(Handle_VoteUnpause);
+            menu.SetTitle("Unpause the match?");
+            menu.AddItem("yes", "Yes");
+            menu.AddItem("no", "No");
+            menu.ExitButton = false;
+            menu.DisplayVoteToAll(20);
+        } else {
+            PrintToChat(client, "[PUG] You cannot initiate an unpause vote at this time.");
+            return Plugin_Handled;
+        }
+    } else {
+        PrintToChat(client, "[PUG] The match is not live. You cannot unpause.");
+    }
+    return Plugin_Handled;
+}
+
 // Events
 public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast) {
     if(gameState == 1) {
@@ -369,14 +440,17 @@ public Action Event_PlayerSpawned(Event event, const char[] name, bool dontBroad
 
 public Action Event_TeamChange(Event event, const char[] name, bool dontBroadcast) {  
     if(teamLock) {
-        if(GetClientTeam(GetClientOfUserId(event.GetInt("userid"))) == CS_TEAM_NONE) {
+        int client = GetClientOfUserId(event.GetInt("userid"));
+        if(GetClientTeam(client) == CS_TEAM_NONE) {
             // If they don't have a team (AKA they reconnected), just let them join a team.
             // If they join the wrong team, they gotta reconnect and try again.
             return Plugin_Continue;
         }
+        PrintToChat(client, "[PUG] Teams are locked. You cannot switch teams. If you are on the wrong team, you must disconnect and reconnect, then select the team you wish to join.");
         return Plugin_Handled;
     }
 
+    // If the teams are not locked, let them switch.
     return Plugin_Continue;
 }
 
@@ -445,4 +519,27 @@ public int Handle_VoteStartMenu(Menu menu, MenuAction action, int result, int pa
     // note: even though the function signature calls for an integer to be returned, we do not need to return one.
     // I do not know why this is and I could not find anything on it. But it works as-is and I'm willing to not
     // question it.
+}
+
+public int Handle_VoteUnpause(Menu menu, MenuAction action, int result, int param2) {
+    if(action == MenuAction_End) {
+        delete menu;
+    } else if(action == MenuAction_VoteEnd) {
+        if(clientpaused == -1) {
+            // The client unpaused the match before the vote finished
+            return 1;
+        }
+
+        // result: 0 = yes, 1 = no
+        if(result == 0) {
+            ServerCommand("mp_unpause_match");
+            clientpaused = -1;
+            PrintToChatAll("[PUG] Players voted to unpause the match.");
+        } else {
+            PrintToChatAll("[PUG] Players voted to remain paused.");
+        }
+    }
+
+    // The return value doesn't do anything.
+    return 1;
 }

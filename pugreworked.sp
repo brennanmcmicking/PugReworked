@@ -35,7 +35,7 @@ public Plugin myinfo =  {
 	name = "PUG System: Reworked",
 	author = "Brennan McMicking",
 	description = "!pughelp",
-	version = "3.1",
+	version = "3.1.1",
 	url = "github.com/brennanmcmicking/pugreworked"
 }
 
@@ -190,6 +190,7 @@ void StartWarmup() {
     ForceAllReadyStatus(false);
     ServerCommand("exec gamemode_competitive.cfg");
     ServerCommand("bot_quota 0");
+    ServerCommand("bot_quota_mode match")
     ServerCommand("mp_warmup_start");
     ServerCommand("mp_warmup_pausetimer 1");
     ServerCommand("bot_kick");
@@ -435,7 +436,7 @@ public Action Event_PlayerSpawned(Event event, const char[] name, bool dontBroad
             clientInfo.WriteString("[NOT READY]");
         }
     }
-    
+    ServerCommand("bot_kick");
 }
 
 public Action Event_TeamChange(Event event, const char[] name, bool dontBroadcast) {  

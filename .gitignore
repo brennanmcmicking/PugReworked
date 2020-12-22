@@ -1,0 +1,6 @@
+compile.*
+spcomp.exe
+*.bat
+compiled/
+include/
+.vscode/
